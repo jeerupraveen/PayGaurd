@@ -1,0 +1,10 @@
+Flask
+flask-mail
+flask-cors
+pymongo
+xgboost
+tensorflow
+numpy
+pandas
+scikit-learn
+joblib
