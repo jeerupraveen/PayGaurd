@@ -13,6 +13,11 @@ from tensorflow.keras import models,losses
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import joblib
+import numpy as np
+import joblib
+import tensorflow as tf
+from flask import Flask, request, jsonify
+from tensorflow.keras.models import load_model
 app = Flask(__name__)
 
 # Enable CORS for the Flask app
@@ -21,8 +26,9 @@ xgb_model = xgb.XGBClassifier()
 xgb_model.load_model("dbdt_fraud_detection.model")  # Load XGBoost model
 
 nn_model = models.load_model("nn_feature_extractor.h5", custom_objects={"mse": losses.MeanSquaredError()})
-scaler = joblib.load("scaler.pkl")  # Load MinMaxScaler
+# scaler = joblib.load("scaler.pkl")  # Load MinMaxScaler
 X_train_columns = joblib.load("X_train_columns.pkl")  # Load feature names
+
 # Flask-Mail configuration for sending email
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
@@ -31,12 +37,16 @@ app.config['MAIL_USERNAME'] = 'jeerupraveen7@gmail.com'
 app.config['MAIL_PASSWORD'] = 'cbyq vhnp gdey enie'
 mail = Mail(app)
 
+model = tf.keras.models.load_model("cnn_bilstm_model.h5")
+scaler = joblib.load("scaler.pkl")
+le = joblib.load("label_encoder.pkl")  # Load LabelEncoder
 # MongoDB configuration
 uri = "mongodb+srv://Pra123veen:Pra123veen@praveen04.higkkwc.mongodb.net/?retryWrites=true&w=majority&appName=Praveen04"
 client = MongoClient(uri)
 
 # Create or access the database
 db = client["PayGaurd"]
+
 
 def generate_otp():
     return ''.join(random.choices(string.digits, k=6))
@@ -203,16 +213,8 @@ def send_otp():
     send_otp_email(email, otp)
     return jsonify({"message": "OTP sent to your email. Please check your inbox.","User_Email":email}), 200
 
-@app.route("/model/prediction",methods=["POST"])
-def test_model():
-    data=request.json
-    if(len(data) == 0):
-        return jsonify({"message":"USER DATA IS MISSING"}),400
-    print("USER DATA",data)
-    
-    return jsonify({"message":'data found'}),200
-@app.route('/predict', methods=['POST'])
-def predict():
+@app.route('/prediction', methods=['POST'])
+def predict1():
     try:
         # Get JSON data from request
         input_data = request.json
@@ -245,6 +247,37 @@ def predict():
             "confidence": float(y_proba)
         }
         return jsonify(result)
+
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+@app.route("/predict", methods=["POST"])
+def predict():
+    try:
+        # Get JSON data from request
+        data = request.get_json()
+
+        # Convert input to DataFrame
+        df = pd.DataFrame([data])
+
+        # Drop unnecessary columns (ensure input doesn't include these)
+        df.drop(columns=['nameOrig', 'nameDest'], errors='ignore', inplace=True)
+
+        # Encode 'type' column if present
+        if 'type' in df.columns:
+            df['type'] = le.transform(df['type'])
+
+        # Scale input data
+        X = scaler.transform(df.values)
+
+        # Reshape for CNN-LSTM model
+        X = X.reshape(X.shape[0], X.shape[1], 1)
+
+        # Predict probability
+        y_pred_prob = model.predict(X)
+        y_pred = (y_pred_prob > 0.5).astype(int)
+
+        return jsonify({"fraud_probability": float(y_pred_prob[0][0]), "prediction": int(y_pred[0][0])})
 
     except Exception as e:
         return jsonify({"error": str(e)})
